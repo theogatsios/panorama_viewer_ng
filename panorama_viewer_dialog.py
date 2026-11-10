@@ -72,12 +72,16 @@ from qgis.PyQt.QtWidgets import (
     QStyle,
     QLabel,
     QFrame,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
 )
 
 from . import compat
 from .webengine_help import NoWebEngineWidget
 from . import pano_paths
 from .live_channel import LiveHub, LiveBridge, handle_live_request
+from .bbox_annotator import AnnotationController
 from .compat import (
     WEB_BACKEND,
     POLYGON_GEOMETRY,
@@ -552,6 +556,13 @@ class PanoramaViewer(QMainWindow):
         self.lt_options.addStretch()
 
         self.btn_find_panorama = QPushButton("View panorama")
+        self.btn_annotate = QPushButton("Annotate sign")
+        self.btn_annotate.setToolTip(
+            "Select a sign on the map, draw a box around it on the panorama and press Enter.\n"
+            "The image is saved to the sign's feature.")
+        self.btn_annot_settings = QPushButton("…")
+        self.btn_annot_settings.setToolTip("Choose the signs layer and the field the image is saved to")
+        self.btn_annot_settings.setFixedWidth(32)
 
         # compact bar shown instead of the viewer while the browser window is used
         self.live_bar = QFrame()
@@ -611,7 +622,11 @@ class PanoramaViewer(QMainWindow):
 
         # 3. controls and progress bar
         control_layout.addLayout(self.lt_options)
-        control_layout.addWidget(self.btn_find_panorama)
+        buttons_layout = QHBoxLayout()
+        buttons_layout.addWidget(self.btn_find_panorama, 3)
+        buttons_layout.addWidget(self.btn_annotate, 1)
+        buttons_layout.addWidget(self.btn_annot_settings)
+        control_layout.addLayout(buttons_layout)
         control_layout.addWidget(self.pbar)
 
 
@@ -629,6 +644,9 @@ class PanoramaViewer(QMainWindow):
         self.canvas.scaleChanged.connect(self.scale_handler)
 
         self.btn_find_panorama.clicked.connect(self.get_pic)
+        self.annot = AnnotationController(self.view, get_context=self.annotation_context, iface=iface)
+        self.btn_annotate.clicked.connect(self.start_annotation)
+        self.btn_annot_settings.clicked.connect(self.annotation_settings)
         self.update_layers.clicked.connect(self.load_layers)
         self.auto_update.stateChanged.connect(self.auto_upd_check)
         self.cmb_layers.currentIndexChanged.connect(self.update_current_layer)
@@ -730,6 +748,12 @@ class PanoramaViewer(QMainWindow):
         if self.view is not None:
             self.view.setVisible(not on)
         self.live_bar.setVisible(on)
+        can_annotate = self.view is not None and not on
+        self.btn_annotate.setEnabled(can_annotate)
+        self.btn_annotate.setToolTip(
+            "Select a sign on the map, draw a box around it on the panorama and press Enter."
+            if can_annotate else
+            "Annotation works on the panorama inside QGIS. Untick \"Browser window\" to use it.")
         if on:
             self.update_live_status()
             self.live_timer.start()
@@ -838,6 +862,8 @@ class PanoramaViewer(QMainWindow):
         self.cmb_fields.setMinimumHeight(hgt_button)
         self.direction_field.setMinimumHeight(hgt_button)
         self.btn_find_panorama.setMinimumHeight(hgt_button)
+        self.btn_annotate.setMinimumHeight(hgt_button)
+        self.btn_annot_settings.setMinimumHeight(hgt_button)
         self.pbar_original_height = self.pbar.frameGeometry().height()
 
     def get_dir(self):
@@ -907,8 +933,109 @@ class PanoramaViewer(QMainWindow):
         self.rubberBandArrow.setToGeometry(new_diff)
 
        
-    def define_selection(self):
-        """Get pic if auto-update view is checked"""
+    # ---------------------------------------------------------- sign annotation
+    ANNOT_SCOPE = "PanoramaViewerNG"
+
+    def annotation_config(self):
+        """Signs layer / image field / output, stored in the QGIS project."""
+        prj = QgsProject.instance()
+        layer_id = prj.readEntry(self.ANNOT_SCOPE, "signs_layer", "")[0]
+        field = prj.readEntry(self.ANNOT_SCOPE, "image_field", "")[0]
+        output = prj.readEntry(self.ANNOT_SCOPE, "image_output", "annotated")[0]
+        layer = prj.mapLayer(layer_id) if layer_id else None
+        return layer, field, output
+
+    def annotation_settings(self):
+        """Small dialog: which layer holds the signs, which field gets the image."""
+        layer, field, output = self.annotation_config()
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Sign annotation settings")
+        form = QFormLayout(dlg)
+        cmb_layer = QComboBox()
+        cmb_field = QComboBox()
+        cmb_output = QComboBox()
+        for lyr in QgsProject.instance().mapLayers().values():
+            if isinstance(lyr, QgsVectorLayer):
+                cmb_layer.addItem(lyr.name(), lyr.id())
+        cmb_output.addItem("Full view with the box drawn on it", "annotated")
+        cmb_output.addItem("Only the sign (cropped)", "crop")
+
+        def fill_fields():
+            cmb_field.clear()
+            lyr = QgsProject.instance().mapLayer(cmb_layer.currentData() or "")
+            if lyr is not None:
+                cmb_field.addItems([f.name() for f in lyr.fields() if is_string_field(f)])
+
+        cmb_layer.currentIndexChanged.connect(lambda _i: fill_fields())
+        if layer is not None:
+            cmb_layer.setCurrentIndex(max(0, cmb_layer.findData(layer.id())))
+        fill_fields()
+        if field:
+            cmb_field.setCurrentText(field)
+        cmb_output.setCurrentIndex(max(0, cmb_output.findData(output)))
+
+        form.addRow("Signs layer:", cmb_layer)
+        form.addRow("Image field (text):", cmb_field)
+        form.addRow("Save:", cmb_output)
+        note = QLabel("If the layer also has text fields named bbox, annotations or source, "
+                      "the box coordinates, view angles and \"manual\" are saved there too.")
+        note.setWordWrap(True)
+        note.setStyleSheet("color: gray;")
+        form.addRow(note)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
+                                   QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        form.addRow(buttons)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return False
+        if not cmb_layer.currentData() or not cmb_field.currentText():
+            self.warning_message("Choose a layer and a text field for the image")
+            return False
+        prj = QgsProject.instance()
+        prj.writeEntry(self.ANNOT_SCOPE, "signs_layer", cmb_layer.currentData())
+        prj.writeEntry(self.ANNOT_SCOPE, "image_field", cmb_field.currentText())
+        prj.writeEntry(self.ANNOT_SCOPE, "image_output", cmb_output.currentData())
+        return True
+
+    def start_annotation(self):
+        """Freeze the current panorama view and let the user draw the sign's box."""
+        if self.view is None or self.live_mode:
+            self.warning_message("Annotation works on the panorama inside QGIS. "
+                                 "Untick \"Browser window\" to use it.")
+            return
+        if not self.pano_loaded:
+            self.warning_message("Open a panorama first")
+            return
+        layer, field, output = self.annotation_config()
+        if layer is None or not field:
+            if not self.annotation_settings():
+                return
+            layer, field, output = self.annotation_config()
+        self.annot.layer = layer
+        self.annot.layer_name = None
+        self.annot.output = output
+        self.annot.fields[output] = field
+        self.annot.start()
+
+    def annotation_context(self):
+        """View details saved with the image (where matching fields exist)."""
+        ctx = {"yaw": self.yaw, "pitch": self.pitch, "fov": self.zoom}
+        try:
+            feats = self.current_layer.selectedFeatures() if self.current_layer else []
+            if feats and self.cmb_fields.currentText():
+                ctx["panorama"] = feats[0][self.cmb_fields.currentText()]
+        except Exception:
+            pass
+        return ctx
+
+    def define_selection(self, layer=None):
+        """Get pic if auto-update view is checked.
+        Only reacts to selections in the panorama layer, so selecting a sign
+        (for annotation) doesn't reload the panorama."""
+        if layer is not None and layer != self.current_layer:
+            return
         if self.auto_update.isChecked():
             self.get_pic()
 

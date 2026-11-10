@@ -40,6 +40,17 @@ Tick **Browser window** in the plugin panel to show panoramas in your web browse
 
 If QGIS has no embedded web engine, this mode is used automatically.
 
+## Sign annotation
+
+Save an image of a sign, cut from the panorama, into a feature of your signs layer.
+
+1. Open a panorama in the plugin panel. The panorama must be shown inside QGIS; annotation is off in browser window mode.
+2. Select **one** sign feature on the map. Selecting it doesn't reload the panorama.
+3. Click **Annotate sign**. The first time, choose the signs layer, the text field that receives the image (base64 JPEG), and whether to save the full view with the box or only the cropped sign. Click **…** to change this later; it's saved in the QGIS project.
+4. Drag a box around the sign and press **Enter**. **Esc** cancels; **Backspace** removes the box.
+
+If the layer also has fields named `bbox`, `annotations`, `source`, `yaw`, `pitch`, `fov` or `panorama`, those are filled too: the box in pixels, a JSON record with the image size and view angles, the value `manual`, the view angles and the panorama link.
+
 ## Troubleshooting
 
 ### "Embedded viewer not available"
