@@ -53,8 +53,8 @@ from qgis.core import (
 from qgis.gui import QgsRubberBand
 
 from qgis.PyQt import QtCore
-from qgis.PyQt.QtCore import Qt, QThread, QUrl, QTimer
-from qgis.PyQt.QtGui import QColor, QDesktopServices, QSurfaceFormat
+from qgis.PyQt.QtCore import Qt, QThread, QUrl, QTimer, QByteArray
+from qgis.PyQt.QtGui import QColor, QDesktopServices, QSurfaceFormat, QImage
 from qgis.PyQt.QtWidgets import (
     QApplication,
     QVBoxLayout,
@@ -659,6 +659,7 @@ class PanoramaViewer(QMainWindow):
         # launching web server
         self.httpd = HttpDaemon(self, base_folder)
         self.httpd.bridge.view_changed.connect(self.on_live_view)
+        self.httpd.bridge.request.connect(self.on_live_request)
         self.httpd.start()
         self.external_window.toggled.connect(self.set_live_mode)
         self.btn_live_reopen.clicked.connect(lambda: self.open_live_window(force=True))
@@ -748,12 +749,10 @@ class PanoramaViewer(QMainWindow):
         if self.view is not None:
             self.view.setVisible(not on)
         self.live_bar.setVisible(on)
-        can_annotate = self.view is not None and not on
-        self.btn_annotate.setEnabled(can_annotate)
         self.btn_annotate.setToolTip(
-            "Select a sign on the map, draw a box around it on the panorama and press Enter."
-            if can_annotate else
-            "Annotation works on the panorama inside QGIS. Untick \"Browser window\" to use it.")
+            "Select a sign on the map, then draw the box around it in the browser window."
+            if on else
+            "Select a sign on the map, draw a box around it on the panorama and press Enter.")
         if on:
             self.update_live_status()
             self.live_timer.start()
@@ -1001,23 +1000,79 @@ class PanoramaViewer(QMainWindow):
 
     def start_annotation(self):
         """Freeze the current panorama view and let the user draw the sign's box."""
-        if self.view is None or self.live_mode:
-            self.warning_message("Annotation works on the panorama inside QGIS. "
-                                 "Untick \"Browser window\" to use it.")
-            return
-        if not self.pano_loaded:
-            self.warning_message("Open a panorama first")
-            return
         layer, field, output = self.annotation_config()
         if layer is None or not field:
             if not self.annotation_settings():
                 return
-            layer, field, output = self.annotation_config()
+        ok, msg = self.annotation_ready()
+        if not ok:
+            self.warning_message(msg)
+            return
+        if self.live_mode:
+            # draw in the browser window; it sends the result back (on_live_request)
+            self.open_live_window()
+            self.httpd.hub.publish({"type": "annotate", "nonce": time.time()})
+            iface.messageBar().pushMessage(
+                "Sign annotation", "Draw the box around the sign in the browser window "
+                "and press Enter there.", level=compat.MSG_INFO, duration=5)
+            return
+        self.prepare_annotator()
+        self.annot.start()
+
+    def prepare_annotator(self):
+        """Point the annotator at the configured layer / field / output."""
+        layer, field, output = self.annotation_config()
         self.annot.layer = layer
         self.annot.layer_name = None
         self.annot.output = output
         self.annot.fields[output] = field
-        self.annot.start()
+
+    def annotation_ready(self):
+        """Can a sign be annotated right now? Returns (ok, message)."""
+        layer, field, _output = self.annotation_config()
+        if layer is None or not field:
+            return False, ("Sign annotation isn't set up yet: in QGIS, click \"…\" next to "
+                           "Annotate sign and choose the signs layer and image field.")
+        if not self.pano_loaded and not self.last_viewer_url:
+            return False, "Open a panorama first."
+        n = layer.selectedFeatureCount()
+        if n != 1:
+            return False, ("Select exactly one sign in the layer \"{}\" on the QGIS map "
+                           "(currently selected: {}).".format(layer.name(), n))
+        return True, ""
+
+    def on_live_request(self, req):
+        """Requests from the browser window (runs in the main thread)."""
+        try:
+            if req.kind == "check":
+                req.done(*self.annotation_ready())
+                return
+            if req.kind == "annotate":
+                ok, msg = self.annotation_ready()
+                if not ok:
+                    req.done(False, msg)
+                    return
+                p = req.payload or {}
+                data = str(p.get("image", ""))
+                if "," in data[:64]:
+                    data = data.split(",", 1)[1]  # strip "data:image/jpeg;base64,"
+                frame = QImage()
+                frame.loadFromData(QByteArray.fromBase64(data.encode("ascii")))
+                anns = p.get("annotations") or []
+                if frame.isNull() or not anns:
+                    req.done(False, "The browser sent no image or no box.")
+                    return
+                self.prepare_annotator()
+                ctx = self.annotation_context()
+                ctx.update({k: v for k, v in (p.get("view") or {}).items()
+                            if k in ("yaw", "pitch", "fov")})
+                ok, msg = self.annot.save(frame, anns, ctx)
+                self.annot._notify(ok, msg)
+                req.done(ok, msg)
+                return
+            req.done(False, "Unknown request")
+        except Exception as e:  # never leave the browser waiting
+            req.done(False, "Error in QGIS: {}".format(e))
 
     def annotation_context(self):
         """View details saved with the image (where matching fields exist)."""

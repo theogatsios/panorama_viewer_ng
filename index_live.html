@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Panorama Viewer NG</title>
+    <script src="canvas_pano.js"></script>
     <style>
         html, body { margin: 0; height: 100%; background: #111; overflow: hidden;
                      font: 15px system-ui, sans-serif; color: #ddd; }
@@ -21,12 +22,46 @@
         #badge::before { content: ""; display: inline-block; width: 8px; height: 8px;
                          border-radius: 50%; margin-right: 6px; background: #3cb371; }
         #badge.off::before { background: #e5383b; }
+        #annotate {
+            position: absolute; top: 8px; right: 10px; padding: 6px 12px; border: 0;
+            border-radius: 6px; background: rgba(0, 0, 0, 0.6); color: #eee; cursor: pointer;
+            font: 13px system-ui, sans-serif; display: none;
+        }
+        #annotate:hover { background: rgba(0, 0, 0, 0.8); }
+        #annot_layer { position: absolute; inset: 0; display: none; cursor: crosshair; background: #000; }
+        #annot_canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+        #annot_bar {
+            position: absolute; left: 0; right: 0; bottom: 0; padding: 8px 12px;
+            background: rgba(0, 0, 0, 0.75); color: #fff; font-size: 13px;
+            display: flex; gap: 12px; align-items: center; justify-content: center; flex-wrap: wrap;
+        }
+        #annot_bar button { padding: 5px 14px; border-radius: 5px; border: 0; cursor: pointer; font: inherit; }
+        #annot_save { background: #00c46a; color: #000; }
+        #annot_save:disabled { background: #555; color: #999; cursor: default; }
+        #annot_cancel { background: #444; color: #eee; }
+        #toast {
+            position: absolute; top: 48px; right: 10px; max-width: 360px; padding: 10px 14px;
+            border-radius: 6px; background: rgba(0, 0, 0, 0.85); color: #eee; font-size: 13px;
+            line-height: 1.4; display: none; z-index: 10;
+        }
+        #toast.ok { border-left: 4px solid #00c46a; }
+        #toast.err { border-left: 4px solid #e5383b; }
     </style>
 </head>
 <body>
 <iframe id="frame" title="Panorama"></iframe>
 <div id="status">Connecting to QGIS&hellip;</div>
 <div id="badge" class="off">QGIS</div>
+<button id="annotate" title="Select one sign on the QGIS map, then draw a box around it here">Annotate sign</button>
+<div id="annot_layer">
+    <canvas id="annot_canvas"></canvas>
+    <div id="annot_bar">
+        <span>Drag a box around the sign &middot; Backspace removes it &middot; Enter saves &middot; Esc cancels</span>
+        <button id="annot_save" disabled>Save to sign</button>
+        <button id="annot_cancel">Cancel</button>
+    </div>
+</div>
+<div id="toast"></div>
 
 <script>
 (function () {
@@ -65,14 +100,166 @@
     }
     frame.addEventListener("load", hookViewer);
 
+    /* ------------------------------------------------ sign annotation */
+    var annotBtn = document.getElementById("annotate");
+    var layer = document.getElementById("annot_layer");
+    var canvas = document.getElementById("annot_canvas");
+    var saveBtn = document.getElementById("annot_save");
+    var toast = document.getElementById("toast");
+    var MAX_W = 2400;      // max width of the saved frame (px)
+    var annot = null;      // {frame: canvas, view: {...}, box: [x,y,w,h] in frame px}
+    var toastTimer = null;
+
+    function showToast(msg, ok) {
+        toast.textContent = msg;
+        toast.className = ok ? "ok" : "err";
+        toast.style.display = "block";
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(function () { toast.style.display = "none"; }, ok ? 3500 : 7000);
+    }
+
+    function currentView() {
+        // Pannellum and the Canvas viewer share yaw/pitch/hfov conventions
+        try {
+            var v = frame.contentWindow.viewer;
+            if (v && typeof v.getYaw === "function" && typeof v.getHfov === "function") {
+                return { yaw: v.getYaw(), pitch: v.getPitch(), hfov: v.getHfov() };
+            }
+        } catch (e) {}
+        return null;
+    }
+
+    function startAnnotation(skipCheck) {
+        if (annot) return;
+        var view = currentView();
+        if (!view) {
+            showToast("Annotation works with the Pannellum or Canvas viewer. " +
+                      "Choose one of them in the QGIS panel (Viewer).", false);
+            return;
+        }
+        var check = skipCheck ? Promise.resolve({ ok: true })
+                              : fetch("/live/annotate/check").then(function (r) { return r.json(); });
+        check.then(function (res) {
+            if (!res.ok) { showToast(res.message, false); return; }
+            freezeView(view);
+        }).catch(function () { showToast("QGIS is not connected.", false); });
+    }
+
+    function freezeView(view) {
+        var dpr = window.devicePixelRatio || 1;
+        var W = Math.round(window.innerWidth * dpr), H = Math.round(window.innerHeight * dpr);
+        if (W > MAX_W) { H = Math.round(H * MAX_W / W); W = MAX_W; }
+        showToast("Preparing the view\u2026", true);
+        CanvasPano.loadSource("image.JPG?t=" + Date.now(), function (err, img) {
+            if (err) { showToast("Could not read the panorama image.", false); return; }
+            var fc = document.createElement("canvas");
+            fc.width = W; fc.height = H;
+            var fctx = fc.getContext("2d");
+            var out = fctx.createImageData(W, H);
+            CanvasPano.project(img.src, img.w, img.h, new Uint32Array(out.data.buffer), W, H,
+                               view.yaw, view.pitch, view.hfov, true);
+            fctx.putImageData(out, 0, 0);
+            toast.style.display = "none";
+            annot = { frame: fc, view: view, box: null, drag: null };
+            canvas.width = W; canvas.height = H;
+            layer.style.display = "block";
+            saveBtn.disabled = true;
+            drawOverlay();
+        });
+    }
+
+    function toFrame(e) {
+        var r = canvas.getBoundingClientRect();
+        return [ (e.clientX - r.left) * canvas.width / r.width,
+                 (e.clientY - r.top) * canvas.height / r.height ];
+    }
+
+    function rectOf(a, b) {
+        var x = Math.max(0, Math.min(a[0], b[0])), y = Math.max(0, Math.min(a[1], b[1]));
+        var x2 = Math.min(canvas.width, Math.max(a[0], b[0])), y2 = Math.min(canvas.height, Math.max(a[1], b[1]));
+        return [Math.round(x), Math.round(y), Math.round(x2 - x), Math.round(y2 - y)];
+    }
+
+    function drawOverlay() {
+        var c = canvas.getContext("2d");
+        c.drawImage(annot.frame, 0, 0);
+        var lw = Math.max(2, Math.round(canvas.width / 600));
+        if (annot.box) {
+            c.strokeStyle = "#00e676"; c.lineWidth = lw; c.setLineDash([]);
+            c.strokeRect.apply(c, annot.box);
+        }
+        if (annot.drag) {
+            c.strokeStyle = "#ffd600"; c.lineWidth = lw; c.setLineDash([8, 6]);
+            c.strokeRect.apply(c, rectOf(annot.drag[0], annot.drag[1]));
+        }
+    }
+
+    function endAnnotation() {
+        annot = null;
+        layer.style.display = "none";
+    }
+
+    function saveAnnotation() {
+        if (!annot || !annot.box) return;
+        var a = annot;
+        saveBtn.disabled = true;
+        var payload = {
+            image: a.frame.toDataURL("image/jpeg", 0.92),
+            annotations: [{ label: "sign", bbox: a.box }],
+            view: { yaw: a.view.yaw - 90, pitch: a.view.pitch, fov: a.view.hfov }
+        };
+        fetch("/live/annotate", { method: "POST", body: JSON.stringify(payload) })
+            .then(function (r) { return r.json(); })
+            .then(function (res) {
+                showToast(res.ok ? "\u2713 " + res.message : res.message, res.ok);
+                if (res.ok) endAnnotation(); else saveBtn.disabled = false;
+            })
+            .catch(function () { showToast("Could not reach QGIS.", false); saveBtn.disabled = false; });
+    }
+
+    canvas.addEventListener("mousedown", function (e) {
+        if (e.button !== 0 || !annot) return;
+        var p = toFrame(e); annot.drag = [p, p];
+    });
+    window.addEventListener("mousemove", function (e) {
+        if (!annot || !annot.drag) return;
+        annot.drag[1] = toFrame(e); drawOverlay();
+    });
+    window.addEventListener("mouseup", function () {
+        if (!annot || !annot.drag) return;
+        var r = rectOf(annot.drag[0], annot.drag[1]);
+        annot.drag = null;
+        if (r[2] >= 5 && r[3] >= 5) { annot.box = r; saveBtn.disabled = false; }
+        drawOverlay();
+    });
+    window.addEventListener("keydown", function (e) {
+        if (!annot) return;
+        if (e.key === "Escape") endAnnotation();
+        else if (e.key === "Enter") saveAnnotation();
+        else if (e.key === "Backspace" || e.key === "Delete") {
+            annot.box = null; saveBtn.disabled = true; drawOverlay();
+        }
+    });
+    saveBtn.addEventListener("click", saveAnnotation);
+    document.getElementById("annot_cancel").addEventListener("click", endAnnotation);
+    annotBtn.addEventListener("click", function () { startAnnotation(false); });
+
     function handle(cmd) {
+        if (cmd.type === "annotate") {
+            startAnnotation(true);   // QGIS already checked that a sign is selected
+            return;
+        }
         if (cmd.type === "load") {
+            endAnnotation();
+            annotBtn.style.display = "block";
             hideStatus();
             frame.src = cmd.url;
             if (cmd.title) document.title = cmd.title + " \u2013 Panorama Viewer NG";
         } else if (cmd.type === "rotate") {
             try { frame.contentWindow.rotateToAngle(cmd.angle); } catch (e) {}
         } else if (cmd.type === "message") {
+            endAnnotation();
+            annotBtn.style.display = "none";
             frame.removeAttribute("src");
             showStatus(cmd.html);
         }

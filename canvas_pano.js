@@ -196,13 +196,21 @@
             this.out = this.ctx.createImageData(W, H);
             this.out32 = new Uint32Array(this.out.data.buffer);
         }
-        var out32 = this.out32, src = this.src, sw = this.srcW, sh = this.srcH;
+        CanvasPano.project(this.src, this.srcW, this.srcH, this.out32, W, H,
+                           this.yaw, this.pitch, this.hfov, quality !== "drag");
+        this.ctx.putImageData(this.out, 0, 0);
+    };
 
-        var tx = Math.tan(this.hfov * DEG / 2), ty = tx * H / W;
-        var cp = Math.cos(this.pitch * DEG), sp = Math.sin(this.pitch * DEG);
-        var cy = Math.cos(this.yaw * DEG), sy = Math.sin(this.yaw * DEG);
+
+    /* Reproject an equirectangular image (Uint32 RGBA pixels, sw x sh) into a
+       W x H perspective view. Used by the viewer and by the browser-window
+       sign annotation, so both produce exactly the same picture. */
+    CanvasPano.project = function (src, sw, sh, out32, W, H, yaw, pitch, hfov, bilinear) {
+
+        var tx = Math.tan(hfov * DEG / 2), ty = tx * H / W;
+        var cp = Math.cos(pitch * DEG), sp = Math.sin(pitch * DEG);
+        var cy = Math.cos(yaw * DEG), sy = Math.sin(yaw * DEG);
         var uK = sw / (2 * Math.PI), vK = sh / Math.PI;
-        var bilinear = quality !== "drag";
 
         // per-column camera x, per-row camera y
         var xs = new Float32Array(W), ys = new Float32Array(H);
@@ -245,7 +253,22 @@
                 }
             }
         }
-        this.ctx.putImageData(this.out, 0, 0);
+    };
+
+    /* Decode an image URL into the pixel buffer project() expects. */
+    CanvasPano.loadSource = function (url, callback) {
+        var img = new Image();
+        img.onload = function () {
+            var w = img.naturalWidth, h = img.naturalHeight;
+            if (w > MAX_SRC_WIDTH) { h = Math.round(h * MAX_SRC_WIDTH / w); w = MAX_SRC_WIDTH; }
+            var c = document.createElement("canvas");
+            c.width = w; c.height = h;
+            var cx = c.getContext("2d", { willReadFrequently: true });
+            cx.drawImage(img, 0, 0, w, h);
+            callback(null, { src: new Uint32Array(cx.getImageData(0, 0, w, h).data.buffer), w: w, h: h });
+        };
+        img.onerror = function () { callback(new Error("Could not load " + url)); };
+        img.src = url;
     };
 
     global.CanvasPano = CanvasPano;

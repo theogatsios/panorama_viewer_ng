@@ -3,7 +3,7 @@
 /***************************************************************************
  Panorama Viewer NG - sign annotation (bounding boxes on the panorama view)
                                  A QGIS plugin
-        copyright            : (C) 2026 by COLLEAGUE NAME (original module)
+        copyright            : (C) 2026 by Elpida Gkouvra (original module)
         copyright            : (C) 2026 by Theo Gatsios (integration into NG)
         email                : theogat@protonmail.com
  ***************************************************************************/
@@ -418,7 +418,14 @@ class AnnotationController:
         return qimage_to_b64(img, self.img_format, self.quality)
 
     def _on_finished(self, frame, anns):
-        ctx = dict(self._ctx)
+        ok, msg = self.save(frame, anns, self._ctx)
+        self._notify(ok, msg)
+        self._clear()
+
+    def save(self, frame, anns, context=None):
+        """Write frame + boxes to the target layer. Returns (ok, message).
+        Used by the in-QGIS overlay and by the browser window annotation."""
+        ctx = dict(context or {})
         point, crs = ctx.pop("point", None), ctx.pop("crs", None)
         f = self.fields
         annotated = render_boxes(frame, anns, self.box_color, self.box_width,
@@ -442,8 +449,7 @@ class AnnotationController:
             ok, err = save_annotation(self.layer, img, values[f["meta"]], point, crs,
                                       {k: v for k, v in values.items() if k != f["meta"]},
                                       self.img_format, self.quality)
-        self._notify(ok, "Image saved to the selected sign" if ok else f"Error: {err}")
-        self._clear()
+        return ok, ("Image saved to the selected sign" if ok else f"Error: {err}")
 
     def _clear(self):
         self.overlay = None
