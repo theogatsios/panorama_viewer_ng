@@ -48,7 +48,7 @@ changelog=1.4:
     - Selecting a feature in another layer no longer reloads the panorama
     - Browser window: a reopened window now always shows the current panorama
     - Precise OSGeo4W / standalone installer instructions for Qt WebEngine on Windows
-    Sign annotation module originally written by COLLEAGUE NAME.
+    Sign annotation module originally written by Elpida Gkouvra.
     1.3 (first release of Panorama Viewer NG):
     - QGIS 4.x / Qt6 support via a QtWebEngine backend; QtWebKit still used on QGIS 3.x / Qt5
     - System-browser fallback when no embedded web engine is available
