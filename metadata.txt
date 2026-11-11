@@ -31,7 +31,8 @@ about=View 360° panoramic photos (photospheres) linked from a layer's attribute
     • Browser window: shows panoramas in a browser window that follows your selection (e.g. on a second screen).
     • Show directions: draws a direction sector at the panorama location.
     • Angle field: sets the initial view angle from a layer field.
-    • Viewer: Pannellum, Three.js, or Canvas, which needs no WebGL (used automatically when WebGL is unavailable).
+    • Viewer: Pannellum, Three.js, or Canvas, which needs no WebGL (used automatically when WebGL is unavailable);
+      Photo for ordinary, non-360° images (chosen automatically for them).
     • Hidden buttons (bottom right of the viewer, on hover): open in browser, maximise viewer.
 
 tracker=https://github.com/theogatsios/panorama_viewer_ng/issues
@@ -44,6 +45,9 @@ changelog=1.4:
     - Annotation: draw a box around an object on the panorama (sign, pothole, lamp post…) and save
       the image (full view or cropped object) plus box, label and view angles into the selected feature
     - Annotation also works in the browser window, with sharp images even for WebGL viewers
+    - New "Photo (flat image)" viewer for ordinary photos, chosen automatically for images that
+      aren't 360° panoramas; photos are annotated at full resolution, with boxes also stored in
+      original-image pixels (image_bbox)
     - Annotation settings (target layer, image field, object label, output) are chosen in a dialog
       and saved per project
     - Selecting a feature in another layer no longer reloads the panorama
@@ -62,7 +66,7 @@ changelog=1.4:
     - New icon
     Based on Panorama Viewer 1.2 by Pavel Pereverzev.
 
-tags=panorama,photosphere,360,pannellum,threejs,street view,qt6,annotation,traffic signs,inventory
+tags=panorama,photosphere,360,pannellum,threejs,street view,qt6,annotation,traffic signs,inventory,photo
 
 category=Plugins
 icon=icon.png

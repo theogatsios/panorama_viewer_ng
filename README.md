@@ -9,7 +9,7 @@ Panorama Viewer NG is the next generation of [Panorama Viewer](https://github.co
 - View 360° photos from local files or web URLs stored in a layer's attributes
 - Draw a direction sector on the map that follows the view in real time
 - Set the initial view angle from a layer field
-- Choose between three viewers: Pannellum, Three.js, or Canvas, which needs no WebGL or GPU
+- Choose between three panorama viewers (Pannellum, Three.js, or Canvas, which needs no WebGL or GPU) and a Photo viewer for ordinary, non-360° images
 - Expanded view and "open in browser" buttons on the viewer
 - Browser window mode for a second screen: a browser window that follows your selection and turns the direction sector on the map
 
@@ -40,6 +40,10 @@ Tick **Browser window** in the plugin panel to show panoramas in your web browse
 
 If QGIS has no embedded web engine, this mode is used automatically.
 
+## Ordinary photos
+
+The plugin also shows ordinary (flat) photos: phone pictures, inspection or dashcam frames. A 360° panorama is always twice as wide as it is tall, so any other image is shown in the **Photo (flat image)** viewer automatically, even when a panorama viewer is selected. You can also choose Photo in the Viewer list. Scroll to zoom, drag to pan, and double-click to switch between fitting the whole photo and 1:1. Photos have no view direction, so no sector is drawn on the map.
+
 ## Annotation
 
 Save an image of an object seen in the panorama (a traffic sign, a pothole, a lamp post, a facade…) into a feature of any layer.
@@ -63,6 +67,8 @@ If the target layer also has fields named `bbox`, `annotations`, `source`, `yaw`
 - `source`: the value `manual`;
 - `yaw`, `pitch`, `fov`: the view angles;
 - `panorama`: the panorama link.
+
+**Photos** are annotated at their full resolution. The visible part of the original image is captured (zoom in first for small objects), and each box is also stored as `image_bbox`: its position in the original photo's pixels. That's ready to use for training a detection model on the original images.
 
 ## Troubleshooting
 

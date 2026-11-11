@@ -155,13 +155,15 @@ class BBoxOverlay(QWidget):
 
     MIN_SIZE = 5  # px, μικρότερα drags αγνοούνται
 
-    def __init__(self, viewer_widget, labels, max_boxes=None, ask_label=True):
+    def __init__(self, viewer_widget, labels, max_boxes=None, ask_label=True, frame=None):
         super().__init__(viewer_widget)
         self.viewer = viewer_widget
         self.labels = list(labels) or ["object"]
         self.max_boxes = max_boxes      # π.χ. 1: νέο bbox αντικαθιστά το προηγούμενο
         self.ask_label = ask_label      # False: χωρίς διάλογο, χρησιμοποιείται labels[0]
-        self.frame = capture_widget(viewer_widget)
+        # frame: a ready image to annotate (e.g. a photo region at full resolution);
+        # otherwise the viewer widget is captured as shown on screen
+        self.frame = frame if frame is not None and not frame.isNull() else capture_widget(viewer_widget)
         self.boxes = []          # [(QRect σε συντεταγμένες overlay, label)]
         self._start = None
         self._current = None
@@ -399,7 +401,7 @@ class AnnotationController:
             return False
         return True
 
-    def start(self):
+    def start(self, frame=None):
         if self.overlay is not None:
             return
         if not self._resolve_layer():
@@ -410,7 +412,7 @@ class AnnotationController:
         self._ctx = dict(self.get_context() or {}) if self.get_context else {}
         self.overlay = BBoxOverlay(self.viewer, self.labels,
                                    max_boxes=1 if self.target == "selected" else None,
-                                   ask_label=self.ask_label)
+                                   ask_label=self.ask_label, frame=frame)
         self.overlay.finished.connect(self._on_finished)
         self.overlay.cancelled.connect(self._clear)
 
@@ -427,6 +429,13 @@ class AnnotationController:
         Used by the in-QGIS overlay and by the browser window annotation."""
         ctx = dict(context or {})
         point, crs = ctx.pop("point", None), ctx.pop("crs", None)
+        # photo regions: also give each box in the original image's pixels
+        origin, k = ctx.get("frame_origin"), float(ctx.get("frame_scale") or 1.0)
+        if origin is not None:
+            anns = [dict(a, image_bbox=[round(origin[0] + a["bbox"][0] / k),
+                                        round(origin[1] + a["bbox"][1] / k),
+                                        round(a["bbox"][2] / k), round(a["bbox"][3] / k)])
+                    for a in anns]
         f = self.fields
         annotated = render_boxes(frame, anns, self.box_color, self.box_width,
                                  draw_labels=self.ask_label)

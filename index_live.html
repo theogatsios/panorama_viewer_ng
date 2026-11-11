@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Panorama Viewer NG</title>
     <script src="canvas_pano.js"></script>
+    <script src="photo_view.js"></script>
     <style>
         html, body { margin: 0; height: 100%; background: #111; overflow: hidden;
                      font: 15px system-ui, sans-serif; color: #ddd; }
@@ -119,9 +120,13 @@
     }
 
     function currentView() {
-        // Pannellum and the Canvas viewer share yaw/pitch/hfov conventions
+        // Pannellum and the Canvas viewer share yaw/pitch/hfov conventions;
+        // the photo viewer reports which region of the image is on screen
         try {
             var v = frame.contentWindow.viewer;
+            if (v && typeof v.getView === "function" && v.getView().type === "photo") {
+                return v.getView();
+            }
             if (v && typeof v.getYaw === "function" && typeof v.getHfov === "function") {
                 return { yaw: v.getYaw(), pitch: v.getPitch(), hfov: v.getHfov() };
             }
@@ -133,7 +138,7 @@
         if (annot) return;
         var view = currentView();
         if (!view) {
-            showToast("Annotation works with the Pannellum or Canvas viewer. " +
+            showToast("Annotation works with the Pannellum, Canvas and Photo viewers. " +
                       "Choose one of them in the QGIS panel (Viewer).", false);
             return;
         }
@@ -146,6 +151,7 @@
     }
 
     function freezeView(view) {
+        if (view.type === "photo") { freezePhoto(view); return; }
         var dpr = window.devicePixelRatio || 1;
         var W = Math.round(window.innerWidth * dpr), H = Math.round(window.innerHeight * dpr);
         if (W > MAX_W) { H = Math.round(H * MAX_W / W); W = MAX_W; }
@@ -166,6 +172,22 @@
             saveBtn.disabled = true;
             drawOverlay();
         });
+    }
+
+    function freezePhoto(view) {
+        // the visible part of the photo, at the photo's own resolution
+        var img = new Image();
+        img.onload = function () {
+            var r = PhotoView.captureRegion(img, view, 8192);
+            annot = { frame: r.canvas, view: view, box: null, drag: null,
+                      photo: { origin: [Math.round(view.x0), Math.round(view.y0)], scale: r.pxPerImagePx } };
+            canvas.width = r.canvas.width; canvas.height = r.canvas.height;
+            layer.style.display = "block";
+            saveBtn.disabled = true;
+            drawOverlay();
+        };
+        img.onerror = function () { showToast("Could not read the image.", false); };
+        img.src = "image.JPG?t=" + Date.now();
     }
 
     function toFrame(e) {
@@ -206,7 +228,8 @@
         var payload = {
             image: a.frame.toDataURL("image/jpeg", 0.92),
             annotations: [{ label: "object", bbox: a.box }],   // QGIS applies the project's label
-            view: { yaw: a.view.yaw - 90, pitch: a.view.pitch, fov: a.view.hfov }
+            view: a.photo ? { type: "photo", frame_origin: a.photo.origin, frame_scale: a.photo.scale }
+                          : { yaw: a.view.yaw - 90, pitch: a.view.pitch, fov: a.view.hfov }
         };
         fetch("/live/annotate", { method: "POST", body: JSON.stringify(payload) })
             .then(function (r) { return r.json(); })

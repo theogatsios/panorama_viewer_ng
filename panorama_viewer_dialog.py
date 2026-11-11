@@ -53,8 +53,8 @@ from qgis.core import (
 from qgis.gui import QgsRubberBand
 
 from qgis.PyQt import QtCore
-from qgis.PyQt.QtCore import Qt, QThread, QUrl, QTimer, QByteArray
-from qgis.PyQt.QtGui import QColor, QDesktopServices, QSurfaceFormat, QImage
+from qgis.PyQt.QtCore import Qt, QThread, QUrl, QTimer, QByteArray, QRect, QRectF
+from qgis.PyQt.QtGui import QColor, QDesktopServices, QSurfaceFormat, QImage, QImageReader, QPainter
 from qgis.PyQt.QtWidgets import (
     QApplication,
     QVBoxLayout,
@@ -99,6 +99,7 @@ if WEB_BACKEND == "webkit":
     QSurfaceFormat.setDefaultFormat(_fmt)
 
 CANVAS_VIEWER = "Canvas (no WebGL)"
+PHOTO_VIEWER = "Photo (flat image)"
 base_folder = os.path.dirname(os.path.realpath(__file__))
 HOST, PORT = "", 8030
 
@@ -527,7 +528,10 @@ class PanoramaViewer(QMainWindow):
         self.update_layers.setFixedWidth(30)
         self.update_layers.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
 
-        self.viewers = {"Pannellum": 'pannellum', "Three.js": 'threejs', CANVAS_VIEWER: 'canvas'}
+        self.viewers = {"Pannellum": 'pannellum', "Three.js": 'threejs', CANVAS_VIEWER: 'canvas',
+                        PHOTO_VIEWER: 'photo'}
+        self.current_page = None       # viewer page currently shown, e.g. "photo"
+        self.photo_notice_shown = False
         if sys.platform == 'darwin':
             del self.viewers["Pannellum"]
         
@@ -683,7 +687,8 @@ class PanoramaViewer(QMainWindow):
         if self.webgl_checked or not ok or self.view is None:
             return
         path = self.view.url().path()
-        if not path.startswith("/index_") or path in ("/index_canvas.html", "/index_error.html"):
+        if not path.startswith("/index_") or path in ("/index_canvas.html", "/index_error.html",
+                                                       "/index_photo.html"):
             return
         self.webgl_checked = True
         js = ("(function(){try{var c=document.createElement('canvas');"
@@ -794,10 +799,31 @@ class PanoramaViewer(QMainWindow):
         if self.live_mode:
             handle_js_message(self, msg)
 
+    def page_for_image(self):
+        """Viewer page for the current image. Images that aren't 2:1 can't be
+        360° panoramas, so they're shown as flat photos whatever is selected."""
+        chosen = self.viewers.get(self.combo_viewer.currentText(), "pannellum")
+        if chosen == "photo":
+            return "photo"
+        size = QImageReader(os.path.join(base_folder, "image.JPG")).size()
+        if size.isValid() and size.height() > 0 and not 1.9 <= size.width() / size.height() <= 2.1:
+            if not self.photo_notice_shown:
+                self.photo_notice_shown = True
+                iface.messageBar().pushMessage(
+                    "Panorama Viewer NG", "This image isn't a 360° panorama ({} × {} px), so it's "
+                    "shown as a flat photo.".format(size.width(), size.height()),
+                    level=compat.MSG_INFO, duration=5)
+            return "photo"
+        return chosen
+
     def load_url(self, url):
         """Show a viewer page in the embedded view or in the external window."""
         if "/index_error.html" not in url:
             self.last_viewer_url = url
+        m = re.search(r"/index_(\w+)\.html", url)
+        self.current_page = m.group(1) if m else None
+        if self.current_page == "photo":
+            self.rubberBandArrow.reset()  # a flat photo has no view direction
         if self.live_mode:
             q = QUrl(url)
             rel = q.path().lstrip("/") + ("?" + q.query() if q.query() else "")
@@ -1030,8 +1056,43 @@ class PanoramaViewer(QMainWindow):
                 "and press Enter there.", level=compat.MSG_INFO, duration=5)
             return
         self.prepare_annotator()
-        self.annot.start()
+        if self.current_page == "photo":
+            self.eval_js("JSON.stringify(viewer.getView())", self._start_photo_annotation)
+        else:
+            self.annot.start()
 
+    def eval_js(self, code, callback):
+        """Evaluate JavaScript in the embedded view and pass the result on."""
+        if WEB_BACKEND == "webkit":
+            callback(self.view.page().mainFrame().evaluateJavaScript(code))
+        else:
+            self.view.page().runJavaScript(code, callback)
+
+    def photo_region(self, view, max_side=8192):
+        """The part of the original photo that is on screen, at the photo's own
+        resolution (black where the view extends past the image).
+        Returns (QImage, (x0, y0), px_per_image_px)."""
+        x0, y0, scale = float(view["x0"]), float(view["y0"]), float(view["scale"])
+        w, h = view["width"] / scale, view["height"] / scale
+        k = min(1.0, max_side / max(w, h))
+        out = QImage(max(1, round(w * k)), max(1, round(h * k)), QImage.Format.Format_RGB32)
+        out.fill(QColor(0, 0, 0))
+        src = QImage(os.path.join(base_folder, "image.JPG"))
+        p = QPainter(out)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        p.drawImage(QRectF(-x0 * k, -y0 * k, src.width() * k, src.height() * k), src)
+        p.end()
+        return out, (round(x0), round(y0)), k
+
+    def _start_photo_annotation(self, result):
+        try:
+            view = json.loads(result) if isinstance(result, str) else dict(result)
+            frame, origin, k = self.photo_region(view)
+        except Exception as e:
+            self.warning_message("Could not read the photo view: {}".format(e))
+            return
+        self.photo_ctx = {"frame_origin": list(origin), "frame_scale": k}
+        self.annot.start(frame=frame)
     def prepare_annotator(self):
         """Point the annotator at the configured layer / field / output."""
         layer, field, output = self.annotation_config()
@@ -1080,8 +1141,12 @@ class PanoramaViewer(QMainWindow):
                     return
                 self.prepare_annotator()
                 ctx = self.annotation_context()
-                ctx.update({k: v for k, v in (p.get("view") or {}).items()
-                            if k in ("yaw", "pitch", "fov")})
+                view = p.get("view") or {}
+                if view.get("type") == "photo":
+                    ctx = {k: v for k, v in ctx.items() if k not in ("yaw", "pitch", "fov")}
+                    ctx.update({k: view[k] for k in ("frame_origin", "frame_scale") if k in view})
+                else:
+                    ctx.update({k: v for k, v in view.items() if k in ("yaw", "pitch", "fov")})
                 ok, msg = self.annot.save(frame, anns, ctx)
                 self.annot._notify(ok, msg)
                 req.done(ok, msg)
@@ -1092,7 +1157,10 @@ class PanoramaViewer(QMainWindow):
 
     def annotation_context(self):
         """View details saved with the image (where matching fields exist)."""
-        ctx = {"yaw": self.yaw, "pitch": self.pitch, "fov": self.zoom}
+        if self.current_page == "photo":
+            ctx = dict(getattr(self, "photo_ctx", {}) or {})
+        else:
+            ctx = {"yaw": self.yaw, "pitch": self.pitch, "fov": self.zoom}
         try:
             feats = self.current_layer.selectedFeatures() if self.current_layer else []
             if feats and self.cmb_fields.currentText():
@@ -1227,7 +1295,7 @@ class PanoramaViewer(QMainWindow):
             if img_get:
                 self.angle = angle
                 QApplication.processEvents()
-                page = "index_{}.html".format(self.viewers.get(self.combo_viewer.currentText(), "pannellum"))
+                page = "index_{}.html".format(self.page_for_image())
                 url = "http://{}:{}/{}?angle={}&zoom={}&controls_visible={}".format(
                     self.httpd.server_host, PORT, page, self.angle, self.zoom, self.controls_visible)
                 if self.view is None:
