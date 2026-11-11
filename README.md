@@ -40,18 +40,29 @@ Tick **Browser window** in the plugin panel to show panoramas in your web browse
 
 If QGIS has no embedded web engine, this mode is used automatically.
 
-## Sign annotation
+## Annotation
 
-Save an image of a sign, cut from the panorama, into a feature of your signs layer.
+Save an image of an object seen in the panorama (a traffic sign, a pothole, a lamp post, a facade…) into a feature of any layer.
 
 1. Open a panorama in the plugin panel, or in the browser window.
-2. Select **one** sign feature on the map. Selecting it doesn't reload the panorama.
-3. Click **Annotate sign**. The first time, choose the signs layer, the text field that receives the image (base64 JPEG), and whether to save the full view with the box or only the cropped sign. Click **…** to change this later; it's saved in the QGIS project.
-4. Drag a box around the sign and press **Enter**. **Esc** cancels; **Backspace** removes the box.
+2. Select **one** feature on the map in the layer that should receive the image. Selecting it doesn't reload the panorama.
+3. Click **Annotate**. The first time, choose:
+   - the **target layer**;
+   - the **image field**, a text field that receives the image as base64 JPEG;
+   - the **object label** (e.g. `sign`, `pothole`), stored with every box;
+   - whether to save the full view with the box drawn on it, or only the object (cropped, without the box).
 
-**In the browser window** the same works there: click **Annotate sign** in the window's top-right corner (or the button in QGIS), draw the box, and press **Enter** or **Save to sign**. The window confirms when the image is saved, or tells you what's missing, e.g. no sign selected. Annotation in the browser works with the Pannellum and Canvas viewers. The saved image is rendered from the panorama itself, so it's sharp even when the viewer uses WebGL.
+   Click **…** next to Annotate to change these later. They're saved in the QGIS project, so each project keeps its own settings.
+4. Drag a box around the object and press **Enter**. **Esc** cancels; **Backspace** removes the box.
 
-If the layer also has fields named `bbox`, `annotations`, `source`, `yaw`, `pitch`, `fov` or `panorama`, those are filled too: the box in pixels, a JSON record with the image size and view angles, the value `manual`, the view angles and the panorama link.
+**In the browser window** the same works there: click **Annotate** in the window's top-right corner (or the button in QGIS), draw the box, and press **Enter** or **Save to feature**. The window confirms when the image is saved, or tells you what's missing, e.g. no feature selected. Annotation in the browser works with the Pannellum and Canvas viewers. The saved image is rendered from the panorama itself, so it's sharp even when the viewer uses WebGL.
+
+If the target layer also has fields named `bbox`, `annotations`, `source`, `yaw`, `pitch`, `fov` or `panorama`, those are filled too:
+- `bbox`: the box in pixels;
+- `annotations`: a JSON record with the label, image size, box and view angles (boxes in COCO-style `[x, y, w, h]`);
+- `source`: the value `manual`;
+- `yaw`, `pitch`, `fov`: the view angles;
+- `panorama`: the panorama link.
 
 ## Troubleshooting
 

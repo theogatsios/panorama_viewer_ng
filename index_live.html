@@ -52,12 +52,12 @@
 <iframe id="frame" title="Panorama"></iframe>
 <div id="status">Connecting to QGIS&hellip;</div>
 <div id="badge" class="off">QGIS</div>
-<button id="annotate" title="Select one sign on the QGIS map, then draw a box around it here">Annotate sign</button>
+<button id="annotate" title="Select one feature on the QGIS map, then draw a box around its object here">Annotate</button>
 <div id="annot_layer">
     <canvas id="annot_canvas"></canvas>
     <div id="annot_bar">
-        <span>Drag a box around the sign &middot; Backspace removes it &middot; Enter saves &middot; Esc cancels</span>
-        <button id="annot_save" disabled>Save to sign</button>
+        <span>Drag a box around the object &middot; Backspace removes it &middot; Enter saves &middot; Esc cancels</span>
+        <button id="annot_save" disabled>Save to feature</button>
         <button id="annot_cancel">Cancel</button>
     </div>
 </div>
@@ -100,7 +100,7 @@
     }
     frame.addEventListener("load", hookViewer);
 
-    /* ------------------------------------------------ sign annotation */
+    /* ------------------------------------------------ annotation */
     var annotBtn = document.getElementById("annotate");
     var layer = document.getElementById("annot_layer");
     var canvas = document.getElementById("annot_canvas");
@@ -205,7 +205,7 @@
         saveBtn.disabled = true;
         var payload = {
             image: a.frame.toDataURL("image/jpeg", 0.92),
-            annotations: [{ label: "sign", bbox: a.box }],
+            annotations: [{ label: "object", bbox: a.box }],   // QGIS applies the project's label
             view: { yaw: a.view.yaw - 90, pitch: a.view.pitch, fov: a.view.hfov }
         };
         fetch("/live/annotate", { method: "POST", body: JSON.stringify(payload) })
@@ -246,7 +246,7 @@
 
     function handle(cmd) {
         if (cmd.type === "annotate") {
-            startAnnotation(true);   // QGIS already checked that a sign is selected
+            startAnnotation(true);   // QGIS already checked that a feature is selected
             return;
         }
         if (cmd.type === "load") {

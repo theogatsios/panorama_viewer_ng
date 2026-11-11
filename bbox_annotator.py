@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 /***************************************************************************
- Panorama Viewer NG - sign annotation (bounding boxes on the panorama view)
+ Panorama Viewer NG - annotation (bounding boxes on the panorama view)
                                  A QGIS plugin
         copyright            : (C) 2026 by Elpida Gkouvra (original module)
         copyright            : (C) 2026 by Theo Gatsios (integration into NG)
@@ -124,7 +124,7 @@ def update_selected_feature(layer, values):
     """
     sel = layer.selectedFeatureIds()
     if len(sel) != 1:
-        return False, f"Select exactly one sign feature (currently selected: {len(sel)})"
+        return False, f"Select exactly one feature (currently selected: {len(sel)})"
     fid = sel[0]
     fields = layer.fields()
     attrs = {}
@@ -158,7 +158,7 @@ class BBoxOverlay(QWidget):
     def __init__(self, viewer_widget, labels, max_boxes=None, ask_label=True):
         super().__init__(viewer_widget)
         self.viewer = viewer_widget
-        self.labels = list(labels) or ["sign"]
+        self.labels = list(labels) or ["object"]
         self.max_boxes = max_boxes      # π.χ. 1: νέο bbox αντικαθιστά το προηγούμενο
         self.ask_label = ask_label      # False: χωρίς διάλογο, χρησιμοποιείται labels[0]
         self.frame = capture_widget(viewer_widget)
@@ -365,7 +365,7 @@ class AnnotationController:
         "source": "source",           # "manual", για να ξεχωρίζουν από του μοντέλου
     }
 
-    def __init__(self, viewer_widget, layer=None, labels=("sign",), get_context=None,
+    def __init__(self, viewer_widget, layer=None, labels=("object",), get_context=None,
                  layer_name=None,
                  target="selected", output="annotated", fields=None,
                  img_format="JPG", quality=90, crop_pad=0.15,
@@ -405,7 +405,7 @@ class AnnotationController:
         if not self._resolve_layer():
             return
         if self.target == "selected" and self.layer.selectedFeatureCount() != 1:
-            self._notify(False, "Select one sign feature on the map first")
+            self._notify(False, "Select one feature on the map first")
             return
         self._ctx = dict(self.get_context() or {}) if self.get_context else {}
         self.overlay = BBoxOverlay(self.viewer, self.labels,
@@ -449,7 +449,7 @@ class AnnotationController:
             ok, err = save_annotation(self.layer, img, values[f["meta"]], point, crs,
                                       {k: v for k, v in values.items() if k != f["meta"]},
                                       self.img_format, self.quality)
-        return ok, ("Image saved to the selected sign" if ok else f"Error: {err}")
+        return ok, ("Image saved to the selected feature" if ok else f"Error: {err}")
 
     def _clear(self):
         self.overlay = None
@@ -458,6 +458,6 @@ class AnnotationController:
         if self.iface:
             ml = getattr(Qgis, "MessageLevel", Qgis)
             level = getattr(ml, "Success", 3) if ok else getattr(ml, "Warning", 1)
-            self.iface.messageBar().pushMessage("Sign annotation", msg, level=level, duration=4)
+            self.iface.messageBar().pushMessage("Annotation", msg, level=level, duration=4)
         else:
             print(msg)

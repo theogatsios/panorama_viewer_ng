@@ -41,14 +41,15 @@ homepage=https://github.com/theogatsios/panorama_viewer_ng
 hasProcessingProvider=no
 
 changelog=1.4:
-    - Sign annotation: draw a box around a sign on the panorama and save the image
-      (full view or cropped sign) plus box and view angles into the selected sign feature
+    - Annotation: draw a box around an object on the panorama (sign, pothole, lamp post…) and save
+      the image (full view or cropped object) plus box, label and view angles into the selected feature
     - Annotation also works in the browser window, with sharp images even for WebGL viewers
-    - Annotation settings (signs layer, image field, output) are chosen in a dialog and saved per project
+    - Annotation settings (target layer, image field, object label, output) are chosen in a dialog
+      and saved per project
     - Selecting a feature in another layer no longer reloads the panorama
     - Browser window: a reopened window now always shows the current panorama
     - Precise OSGeo4W / standalone installer instructions for Qt WebEngine on Windows
-    Sign annotation module originally written by Elpida Gkouvra.
+    Annotation module originally written by Elpida Gkouvra.
     1.3 (first release of Panorama Viewer NG):
     - QGIS 4.x / Qt6 support via a QtWebEngine backend; QtWebKit still used on QGIS 3.x / Qt5
     - System-browser fallback when no embedded web engine is available
@@ -61,7 +62,7 @@ changelog=1.4:
     - New icon
     Based on Panorama Viewer 1.2 by Pavel Pereverzev.
 
-tags=panorama,photosphere,360,pannellum,threejs,street view,qt6,annotation,traffic signs
+tags=panorama,photosphere,360,pannellum,threejs,street view,qt6,annotation,traffic signs,inventory
 
 category=Plugins
 icon=icon.png
