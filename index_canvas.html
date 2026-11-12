@@ -170,6 +170,11 @@
             angle_init = angle_init + parseInt(getQueryParam('angle'));
         }
 
+        // no direction field selected: start at the image centre (yaw 0 = x = W/2)
+        if (getQueryParam('no_dir') === '1') {
+            angle_init = 0;
+        }
+
         if (getQueryParam('controls_visible') == 'True') {
             controls_visible = true;
         }else{

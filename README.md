@@ -22,7 +22,7 @@ On QGIS 4.x (Qt6) it uses QtWebEngine, which needs the Qt WebEngine Python bindi
 ## Quick guide
 
 1. Open a layer of any geometry type.
-2. Add a text field and fill it with direct links to 360° photos (local paths or web URLs).
+2. Add a text field and fill it with direct links to 360° photos: local paths (absolute, or relative to the QGIS project file or the layer's folder, e.g. `./panoramas/a.jpg`), `smb://` or `file://` links, or web URLs.
 3. Open the plugin and select the **Layer** and **Field** with the image links.
 4. Select a feature on the map and click **View panorama**.
 

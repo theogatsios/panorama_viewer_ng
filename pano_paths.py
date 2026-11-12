@@ -104,8 +104,41 @@ def _try_gio_mount(server, share):
         return False
 
 
-def resolve(link):
-    """Return a PanoSource for the value stored in the link field."""
+def _base_dirs(base_dirs):
+    """Folders a relative link may be relative to: the caller's list, then the
+    QGIS project folder (de-duplicated, existing folders only)."""
+    dirs = [d for d in (base_dirs or []) if d]
+    try:
+        from qgis.core import QgsProject
+        proj = QgsProject.instance()
+        dirs.append(proj.homePath())
+        dirs.append(os.path.dirname(proj.fileName()))
+    except Exception:
+        pass
+    out = []
+    for d in dirs:
+        if d and os.path.isdir(d) and d not in out:
+            out.append(d)
+    return out
+
+
+def _resolve_relative(link, base_dirs):
+    """Absolute path of a relative link (./pano.jpg, ../x/pano.jpg, pano.jpg)
+    if it exists under one of the base folders, else None."""
+    rel = link.replace("\\", os.sep).replace("/", os.sep)
+    for base in _base_dirs(base_dirs):
+        cand = os.path.normpath(os.path.join(base, rel))
+        if os.path.isfile(cand):
+            return cand
+    return None
+
+
+def resolve(link, base_dirs=None):
+    """Return a PanoSource for the value stored in the link field.
+
+    Relative paths (./panoramas/a.jpg) are looked up next to the QGIS project
+    file, then in any extra folders given in base_dirs (e.g. the layer's folder).
+    """
     if link is None:
         return PanoSource("error", None, "The selected feature has no panorama link.")
     link = str(link).strip()
@@ -118,6 +151,17 @@ def resolve(link):
 
     parsed = urlparse(link)
     scheme = parsed.scheme.lower()
+
+    # relative path: ./pano.jpg, ../pano.jpg, panoramas/pano.jpg
+    if not scheme or len(scheme) == 1:
+        found = _resolve_relative(link, base_dirs)
+        if found:
+            return PanoSource("local", found)
+        if not scheme:
+            tried = _base_dirs(base_dirs)
+            hint = (" Looked relative to: {}.".format(", ".join(tried)) if tried else
+                    " Save the QGIS project so relative paths have a base folder.")
+            return PanoSource("error", None, "File not found: {}.{}".format(link, hint))
 
     # Windows drive letters parse as a one-letter scheme ("C:\...")
     if len(scheme) == 1:

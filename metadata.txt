@@ -5,7 +5,7 @@ name=Panorama Viewer NG
 qgisMinimumVersion=3.0
 qgisMaximumVersion=4.99
 description=View 360° panoramic photos linked to map features, in QGIS 3 and QGIS 4
-version=1.4
+version=1.6
 author=Pavel Pereverzev, Theo Gatsios
 email=theogat@protonmail.com
 
@@ -41,7 +41,11 @@ homepage=https://github.com/theogatsios/panorama_viewer_ng
 
 hasProcessingProvider=no
 
-changelog=1.4:
+changelog=1.6:
+    - Relative image paths (./panoramas/a.jpg, pano.jpg) are resolved next to the QGIS project
+      file, then in the layer's folder; the error message lists the folders that were searched
+    - Without a direction field, panoramas open at the centre of the image
+    1.4:
     - Annotation: draw a box around an object on the panorama (sign, pothole, lamp post…) and save
       the image (full view or cropped object) plus box, label and view angles into the selected feature
     - Annotation also works in the browser window, with sharp images even for WebGL viewers

@@ -1275,7 +1275,14 @@ class PanoramaViewer(QMainWindow):
                 self.angle = angle
             
             # panorama path check: local / UNC paths, file://, smb:// and http(s)://
-            source = pano_paths.resolve(cf_attr)
+            layer_dirs = []
+            try:
+                lyr_src = self.current_layer.source().split("|")[0] if self.current_layer else ""
+                if lyr_src and os.path.exists(lyr_src):
+                    layer_dirs.append(os.path.dirname(os.path.abspath(lyr_src)))
+            except Exception:
+                pass
+            source = pano_paths.resolve(cf_attr, layer_dirs)
             self.current_title = os.path.basename(str(cf_attr or "").rstrip("/\\"))
             getter = GetPanorama(self)
             try:
@@ -1298,6 +1305,8 @@ class PanoramaViewer(QMainWindow):
                 page = "index_{}.html".format(self.page_for_image())
                 url = "http://{}:{}/{}?angle={}&zoom={}&controls_visible={}".format(
                     self.httpd.server_host, PORT, page, self.angle, self.zoom, self.controls_visible)
+                if angle_field == '- none -':
+                    url += "&no_dir=1"  # no direction field: start at the image centre (x = W/2)
                 if self.view is None:
                     url += "&silent_mode=1"
                 self.load_url(url)
